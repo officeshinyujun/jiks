@@ -54,6 +54,16 @@ function blindSolveRejection(spec, solve) {
             ],
         };
     }
+    if (spec.ultra && solve.perceivedDifficulty !== 'hard') {
+        return {
+            code: 'GEN_TOO_EASY',
+            message: `검토자: 초고난도 문항인데 난도가 ${solve.perceivedDifficulty}`,
+            notes: [
+                '검토자가 실제 수능 3점 최고난도 수준이 아니라고 판단했습니다. 모든 <보기>·선지에 계산과 기준 적용을 둘 이상 결합하고, 흔한 실수로 계산하면 판정이 뒤집히게 하십시오.',
+                `검토 근거: ${solve.reasoning.slice(0, 400)}`,
+            ],
+        };
+    }
     if (solve.perceivedDifficulty === 'easy' && requiresNonTrivial(spec)) {
         return {
             code: 'GEN_TOO_EASY',

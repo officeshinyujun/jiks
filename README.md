@@ -46,7 +46,16 @@ cp -R jiks/exam-question-generator <프로젝트>/.claude/skills/
 | `--subject` | `success`(성직) / `kongil`(공일) |
 | `--units` | `15-18`, `7` (1~20) |
 | `--count` | 1~30 |
-| `--difficulty` | `LOW`(하, 전부 2점) / `MIDDLE`(중, 실제 시험의 단원별 3점 비율) / `HIGH`(상, 전부 3점) / `INTERGRATE`(통합) |
+| `--difficulty` | `LOW`(하, 전부 2점) / `MIDDLE`(중, 실제 시험의 단원별 3점 비율) / `HIGH`(상, 전부 3점) / `INTERGRATE`(통합) / `ULTRA`(초고난도) |
+
+### 초고난도 모드
+
+`--difficulty ULTRA`(또는 `초고난도`)는 모든 선지를 두 번 이상 생각해야 풀리는 문항을 만듭니다.
+
+- **소거 지름길 차단:** <보기>형 선지는 정답 조합에서 보기 하나씩만 뒤집은 조합을 모두 포함합니다. 그래서 어느 보기 하나라도 판정하지 않으면 정답 후보가 둘 남습니다. 이 구조의 정답은 ③~⑤이므로, 여러 문항이면 단일 정답형을 섞어 정답 위치를 고르게 맞춥니다.
+- **계산 고정 진술 없음:** 모든 진술을 에이전트가 직접 씁니다.
+- **쓰기 규칙:** 규칙 하나·값 하나로 판정되는 진술, 앞 구절만으로 거짓이 되는 복합 진술은 금지입니다. 참 진술은 흔한 실수로 계산하면 다른 값이 나오게 씁니다.
+- **검토:** 블라인드 검토에서 보기별 사고 단계와 소거 경로를 점검하고, hard 판정을 받아야 통과합니다.
 
 자세한 작업 순서와 규칙은 [`exam-question-generator/SKILL.md`](exam-question-generator/SKILL.md), 검토 기준은 [`references/review-rubric.md`](exam-question-generator/references/review-rubric.md), 출력 형식은 [`references/output-format.md`](exam-question-generator/references/output-format.md)에 있습니다.
 

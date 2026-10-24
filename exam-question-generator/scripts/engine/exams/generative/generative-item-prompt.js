@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.generativeSystemPrompt = generativeSystemPrompt;
 exports.buildGenerativeItemPrompt = buildGenerativeItemPrompt;
 exports.generativeItemResponseFormat = generativeItemResponseFormat;
+exports.ultraInstructions = ultraInstructions;
 exports.blindSolveUserPrompt = blindSolveUserPrompt;
 exports.blindSolveSystemPrompt = blindSolveSystemPrompt;
 exports.blindSolveResponseFormat = blindSolveResponseFormat;
@@ -120,6 +121,8 @@ function buildGenerativeItemPrompt(spec, repairNotes = []) {
         if (spec.difficulty === 'HIGH' || spec.difficulty === 'INTERGRATE') {
             lines.push('- 상 난이도 시험: 개념 이름이나 정의 하나만 알면 바로 풀리는 단순 개념 확인형은 금지입니다. 모든 <보기>·선지가 사례의 조건(인원, 기간, 수치, 예외 등)을 개념 기준에 적용해야 판정되게 하십시오.');
         }
+        if (spec.ultra)
+            lines.push(...ultraInstructions(spec));
     }
     else {
         lines.push('## 난도');
@@ -428,15 +431,31 @@ function generativeItemResponseFormat(spec) {
     };
 }
 /** 블라인드 검토 사용자 프롬프트: 학생 화면 + (법·제도 단원) 정합성 점검 항목 */
-function blindSolveUserPrompt(rendered, legalRules = []) {
-    if (legalRules.length === 0)
-        return rendered;
+/** 초고난도 문항 지시: 모든 <보기>·선지가 두 단계 이상, 한 단계 판정·소거 지름길 금지 */
+function ultraInstructions(spec) {
     return [
-        rendered,
         '',
-        '[법적 정합성 점검 항목] 아래를 하나라도 어기면 curriculumIssues에 적고, 그 때문에 정답이 흔들리면 ambiguity를 major로 하십시오.',
-        ...legalRules.map((rule) => `- ${rule}`),
-    ].join('\n');
+        '## 초고난도 (필수 — 하나라도 어기면 블라인드 검토에서 반려됨)',
+        '- 모든 <보기>·선지는 두 단계 이상의 판단을 거쳐야 참/거짓이 정해져야 합니다. 한 단계란 규칙 하나를 떠올리거나 값 하나를 확인하는 것입니다. 예: (1) 휴게 시간을 빼서 실제 근로 시간을 구하고 (2) 연령·사업장 규모 기준과 비교하고 (3) 남은 한도나 금액을 계산하는 진술.',
+        '- 규칙 하나만 알면 판정되는 진술은 금지입니다(예: "5명 미만이므로 가산 수당이 없다"만으로 거짓이 되는 진술). 규칙을 알아도 사례의 수치를 계산해야 결론이 나게 쓰십시오.',
+        '- 복합 진술의 앞 구절 하나만 보고 거짓이 되게 쓰지 마십시오. 거짓 진술의 오류는 끝까지 계산·판단해야 드러나는 마지막 결론(금액·시간·기한·적용 여부)에 두십시오.',
+        '- 참 진술은 흔한 실수(휴게 시간 미차감, 가산 누락·이중 가산, 기준 연령·인원 혼동, 기간 계산 착오)로 계산하면 다른 값이 나오게 하십시오. 대충 계산해도 맞는 참 진술은 변별력이 없습니다.',
+        '- 거짓 진술의 값은 그 흔한 실수로 나오는 값으로 만드십시오(예: 가산율을 100%로 본 금액, 휴게를 빼지 않은 시간).',
+        '- 판정에 필요한 수치·조건(인원, 연령, 시각, 기간, 금액)은 모두 제시문에 두고, 서로 다른 블록·줄에 나누어 두십시오.',
+        ...(spec.responseMode === 'truth_combination'
+            ? ['- 선지 조합은 엔진이 소거 지름길이 없도록 정했습니다: 정답 조합에서 보기 하나만 다른 조합이 모두 선지에 있어 모든 <보기>를 판정해야 정답이 정해집니다. 그러니 어느 <보기>도 쉬우면 안 됩니다.']
+            : ['- 단일 정답형이므로 정답 선지를 찾는 것만으로 끝나지 않게, 오답 선지 4개도 각각 두 단계 이상 판단해야 오답임이 드러나게 하십시오.']),
+    ];
+}
+function blindSolveUserPrompt(rendered, legalRules = [], ultra = false) {
+    const sections = [rendered];
+    if (legalRules.length > 0) {
+        sections.push('', '[법적 정합성 점검 항목] 아래를 하나라도 어기면 curriculumIssues에 적고, 그 때문에 정답이 흔들리면 ambiguity를 major로 하십시오.', ...legalRules.map((rule) => `- ${rule}`));
+    }
+    if (ultra) {
+        sections.push('', '[초고난도 점검] 이 문항은 모든 <보기>·선지가 두 단계 이상 생각해야 판정되는 초고난도를 목표로 합니다.', '- reasoning에 <보기>·선지마다 판정에 필요한 최소 사고 단계 수와 내용을 적으십시오.', '- 규칙 하나·값 하나만 확인해도 판정되는 <보기>·선지, 복합 진술의 앞 구절만으로 판정되는 진술, 대충 계산해도 맞는 참 진술은 trivialStatements에 넣으십시오.', '- 일부 <보기>만 판정하고 소거로 정답에 도달하는 경로가 있으면 reasoning에 적고 perceivedDifficulty를 moderate 이하로 하십시오.', '- perceivedDifficulty는 실제 수능 3점 최고난도 문항과 비교해 그 수준이면 hard로 하십시오.');
+    }
+    return sections.join('\n');
 }
 function blindSolveSystemPrompt() {
     return [

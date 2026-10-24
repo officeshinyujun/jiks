@@ -26,7 +26,7 @@ const generative_item_prompt_1 = require("../generative-item-prompt");
 const exam_style_knowledge_1 = require("../exam-style-knowledge");
 const legal_review_rules_1 = require("../legal-review-rules");
 const text_similarity_1 = require("../text-similarity");
-exports.SKILL_ENGINE_VERSION = 'exam-skill-engine-v2';
+exports.SKILL_ENGINE_VERSION = 'exam-skill-engine-v3';
 const NEAR_DUPLICATE_THRESHOLD = 0.55;
 function toPlanRequest(args) {
     if (args.startUnit < 1 || args.endUnit > 20 || args.startUnit > args.endUnit) {
@@ -40,8 +40,9 @@ function toPlanRequest(args) {
         startUnitNum: args.startUnit,
         endUnitNum: args.endUnit,
         questionCount: args.count,
-        difficulty: args.difficulty,
+        difficulty: args.ultra ? difficulty_1.Difficulty.HIGH : args.difficulty,
         seed: args.seed ?? `skill-${Date.now()}`,
+        ...(args.ultra ? { ultra: true } : {}),
         ...(args.concepts === undefined || args.concepts.length === 0 ? {} : { targetConcepts: args.concepts }),
     };
 }
@@ -87,7 +88,7 @@ function checkCandidate(spec, content, otherTexts = []) {
 function reviewBrief(spec, question) {
     return {
         system: (0, generative_item_prompt_1.blindSolveSystemPrompt)(),
-        user: (0, generative_item_prompt_1.blindSolveUserPrompt)((0, generative_item_assembler_1.renderForSolver)(question), (0, legal_review_rules_1.legalReviewRules)(spec.subject, spec.unitNumber)),
+        user: (0, generative_item_prompt_1.blindSolveUserPrompt)((0, generative_item_assembler_1.renderForSolver)(question), (0, legal_review_rules_1.legalReviewRules)(spec.subject, spec.unitNumber), spec.ultra === true),
         schema: (0, generative_item_prompt_1.blindSolveResponseFormat)().json_schema.schema,
     };
 }

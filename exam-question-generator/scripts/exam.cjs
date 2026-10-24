@@ -25,7 +25,7 @@ const REPLAN_AT = 2; // 2번째 시도부터 개념·자료를 바꾼 대체 명
 const MAX_REFILLS = 2; // 한 자리를 다시 여는 최대 횟수(무한 재출제 방지)
 
 const SUBJECTS = { success: 'success', sungjik: 'success', 성직: 'success', 성공적인직업생활: 'success', kongil: 'kongil', industry: 'kongil', 공일: 'kongil', 공업일반: 'kongil' };
-const DIFFICULTIES = { LOW: 'LOW', 하: 'LOW', MIDDLE: 'MIDDLE', 중: 'MIDDLE', HIGH: 'HIGH', 상: 'HIGH', INTERGRATE: 'INTERGRATE', INTEGRATE: 'INTERGRATE', 통합: 'INTERGRATE' };
+const DIFFICULTIES = { LOW: 'LOW', 하: 'LOW', MIDDLE: 'MIDDLE', 중: 'MIDDLE', HIGH: 'HIGH', 상: 'HIGH', INTERGRATE: 'INTERGRATE', INTEGRATE: 'INTERGRATE', 통합: 'INTERGRATE', ULTRA: 'ULTRA', 초고난도: 'ULTRA', 최상: 'ULTRA' };
 const SUBJECT_NAMES = { success: '성공적인 직업생활', kongil: '공업 일반' };
 
 function fail(message) {
@@ -203,14 +203,17 @@ function commandPlan(options) {
   const subject = SUBJECTS[String(options.subject || '').replace(/\s+/g, '')];
   if (!subject) fail('--subject는 success(성직) 또는 kongil(공일)입니다.');
   const difficulty = DIFFICULTIES[String(options.difficulty || 'MIDDLE').toUpperCase()] || DIFFICULTIES[options.difficulty];
-  if (!difficulty) fail('--difficulty는 LOW|MIDDLE|HIGH|INTERGRATE(하|중|상|통합)입니다.');
+  if (!difficulty) fail('--difficulty는 LOW|MIDDLE|HIGH|INTERGRATE|ULTRA(하|중|상|통합|초고난도)입니다.');
+  // 초고난도: 엔진 난이도는 HIGH(전부 3점) + 소거 지름길 없는 선지 조합·계산 고정 진술 없음
+  const ultra = difficulty === 'ULTRA' || options.ultra === true;
   const [startUnit, endUnit = startUnit] = String(options.units || '').split('-').map(Number);
   const request = engine.toPlanRequest({
     subject,
     startUnit,
     endUnit,
     count: Number(options.count || 5),
-    difficulty,
+    difficulty: ultra ? 'HIGH' : difficulty,
+    ultra,
     seed: options.seed ? String(options.seed) : undefined,
     concepts: options.concepts ? String(options.concepts).split(',').map((value) => value.trim()).filter(Boolean) : undefined,
   });
@@ -223,7 +226,7 @@ function commandPlan(options) {
   };
   savePlan(work, plan);
   for (const item of plan.items) writeWritingBrief(work, item);
-  console.log(`출제 계획: ${SUBJECT_NAMES[subject]} ${startUnit}~${endUnit}단원, ${difficulty}, ${specs.length}문항 → ${work}`);
+  console.log(`출제 계획: ${SUBJECT_NAMES[subject]} ${startUnit}~${endUnit}단원, ${ultra ? '초고난도(ULTRA)' : difficulty}, ${specs.length}문항 → ${work}`);
   for (const item of plan.items) {
     const s = item.spec;
     console.log(`  ${pad(item.ordinal)}. ${s.unitNumber}단원 [${s.targetConcept.name}] ${s.responseMode}${s.calculation ? `+계산(${s.calculation.kind}/${s.calculation.format})` : ''} ${s.points}점 정답 ${s.answerIndex}번 → ${path.join(itemDir(work, item.ordinal), 'brief.md')}`);
@@ -357,11 +360,12 @@ function commandExport(options) {
   if (accepted.length === 0) fail('통과한 문항이 없습니다.');
   const questions = accepted.map(({ item, question }, index) => engine.toAppQuestion(item.spec, question, index + 1));
   const request = plan.request;
-  const title = `${SUBJECT_NAMES[request.subject]} ${request.startUnitNum}~${request.endUnitNum}단원 (AI 출제 ${request.difficulty})`;
+  const level = request.ultra ? '초고난도' : request.difficulty;
+  const title = `${SUBJECT_NAMES[request.subject]} ${request.startUnitNum}~${request.endUnitNum}단원 (AI 출제 ${level})`;
   const exam = {
     title,
     subject: request.subject,
-    difficulty: request.difficulty,
+    difficulty: request.ultra ? 'ULTRA' : request.difficulty,
     unitRange: [request.startUnitNum, request.endUnitNum],
     requestedCount: request.questionCount,
     engine: engine.SKILL_ENGINE_VERSION,
@@ -390,7 +394,7 @@ function commandExport(options) {
 const { command, options } = parseArgs(process.argv.slice(2));
 const commands = { plan: commandPlan, check: commandCheck, review: commandReview, status: commandStatus, refresh: commandRefresh, refill: commandRefill, export: commandExport };
 if (!commands[command]) {
-  console.log('사용법: node exam.cjs <plan|check|review|status|refresh|refill|export> [옵션]\n  plan   --work DIR --subject success|kongil --units 15-17 --count 5 --difficulty LOW|MIDDLE|HIGH|INTERGRATE [--seed s] [--concepts a,b] [--force]\n  check  --work DIR --item N [--file candidate.json]\n  review --work DIR --item N [--file review.json]\n  status --work DIR\n  refresh --work DIR\n  refill --work DIR [--item N]\n  export --work DIR');
+  console.log('사용법: node exam.cjs <plan|check|review|status|refresh|refill|export> [옵션]\n  plan   --work DIR --subject success|kongil --units 15-17 --count 5 --difficulty LOW|MIDDLE|HIGH|INTERGRATE|ULTRA [--seed s] [--concepts a,b] [--force]\n  check  --work DIR --item N [--file candidate.json]\n  review --work DIR --item N [--file review.json]\n  status --work DIR\n  refresh --work DIR\n  refill --work DIR [--item N]\n  export --work DIR');
   process.exit(command ? 1 : 0);
 }
 commands[command](options);

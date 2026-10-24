@@ -4,6 +4,7 @@ exports.STEM_ENDINGS = void 0;
 exports.planGenerativeExam = planGenerativeExam;
 exports.planGenerativeReserves = planGenerativeReserves;
 exports.replanGenerativeItem = replanGenerativeItem;
+exports.shortcutFreeChoiceSet = shortcutFreeChoiceSet;
 exports.isHardExam = isHardExam;
 exports.allocatePoints = allocatePoints;
 exports.largestRemainder = largestRemainder;
@@ -55,11 +56,17 @@ function planGenerativeExam(request) {
     const rng = seededRandom(`${request.seed}:plan`);
     const units = allocateUnits(request, rng);
     const sourceStats = statsForDifficulty(request.subject, request.difficulty);
-    const modes = shuffle(largestRemainder(modeDistribution(sourceStats, request.difficulty), request.questionCount), rng);
-    const answers = spreadAnswers(largestRemainder(sourceStats.answerPositions, request.questionCount).map(Number), rng);
+    const modes = request.ultra
+        ? ultraModes(request.questionCount, rng)
+        : shuffle(largestRemainder(modeDistribution(sourceStats, request.difficulty), request.questionCount), rng);
+    const answers = request.ultra
+        ? ultraAnswers(modes, rng)
+        : spreadAnswers(largestRemainder(sourceStats.answerPositions, request.questionCount).map(Number), rng);
     const statementSlots = modes.filter((mode) => mode === 'statement').length;
     let negativeLeft = Math.min(MAX_NEGATIVE_PER_EXAM, Math.round(statementSlots * sourceStats.negativeShareOfSingle));
-    const points = allocatePoints(request.subject, units, request.difficulty, seededRandom(`${request.seed}:points`));
+    const points = request.ultra
+        ? units.map(() => 3)
+        : allocatePoints(request.subject, units, request.difficulty, seededRandom(`${request.seed}:points`));
     const usage = new PlanUsage();
     for (const concept of request.avoidConcepts ?? [])
         usage.concepts.add(concept);
@@ -132,7 +139,8 @@ function planItem(input) {
     // 단원 특징 문항(계산·판정형) 여부는 별도 난수로 정해 다른 계획 요소의 난수 흐름을 바꾸지 않는다.
     const calcRng = seededRandom(`${request.seed}:calc:${input.ordinal}${input.salt}`);
     // 같은 모듈은 한 시험에 2번까지(같은 자료 틀이 반복되지 않게)
-    const signatureChoice = (0, signature_registry_1.chooseSignature)(request.subject, unitNumber, mode, polarity, calcRng, signature_registry_1.SIGNATURE_MODULES.filter((module) => (usage.signatures.get(module.kind) ?? 0) < MAX_SIGNATURE_PER_EXAM), 
+    // 초고난도는 서버 계산 고정 진술을 쓰지 않는다: 고정 진술은 한 단계로 판정되는 경우가 많아 소거 지름길이 된다.
+    const signatureChoice = request.ultra ? undefined : (0, signature_registry_1.chooseSignature)(request.subject, unitNumber, mode, polarity, calcRng, signature_registry_1.SIGNATURE_MODULES.filter((module) => (usage.signatures.get(module.kind) ?? 0) < MAX_SIGNATURE_PER_EXAM), 
     // 상·통합 시험은 계산·판정형 특징 문항을 더 많이 넣는다.
     isHardExam(request.difficulty) ? HARD_SIGNATURE_SHARE_SCALE : 1);
     // statements 형식 특징 문항은 계산 진술과 맞는 개념 안에서 정답 개념을 고른다(요청 개념이 없을 때).
@@ -171,7 +179,12 @@ function planItem(input) {
     let viewKeys;
     let comboChoiceSet;
     let trueViewKeys;
-    if (mode === 'truth_combination') {
+    if (mode === 'truth_combination' && request.ultra) {
+        viewKeys = VIEW_KEYS.slice(0, 4);
+        comboChoiceSet = shortcutFreeChoiceSet(viewKeys, answerIndex, rng);
+        trueViewKeys = [...(comboChoiceSet[answerIndex - 1] ?? 'ㄱㄴ')];
+    }
+    else if (mode === 'truth_combination') {
         const viewCount = pickWeighted(['3', '4'].map((count) => ({
             value: count,
             weight: (blend(unitStats.viewItemCounts, sourceStats.viewItemCounts)[count] ?? 0) + 0.01,
@@ -267,7 +280,60 @@ function planItem(input) {
         pitfallsToAvoid: guide.pitfallsToAvoid,
         diversityHint,
         unitDifficultyTier: unitDifficulty.tier,
+        ...(request.ultra ? { ultra: true } : {}),
     };
+}
+/** 초고난도 형식: 한 문항이면 <보기>형, 여러 문항이면 약 60%는 <보기>형·나머지는 단일 정답형 */
+function ultraModes(count, rng) {
+    const combos = count === 1 ? 1 : Math.round(count * 0.6);
+    return shuffle(Array.from({ length: count }, (_, index) => (index < combos ? 'truth_combination' : 'statement')), rng);
+}
+/**
+ * 초고난도 정답 위치: 소거 지름길 없는 <보기>형은 정답이 ③~⑤에만 올 수 있으므로
+ * (정답 조합에서 보기 하나씩 뺀 조합이 앞 번호를 차지한다) ①·②는 단일 정답형에 먼저 준다.
+ */
+function ultraAnswers(modes, rng) {
+    const pool = shuffle(largestRemainder({ 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 }, modes.length).map(Number), rng).sort((left, right) => right - left);
+    const comboSlots = modes.flatMap((mode, index) => (mode === 'truth_combination' ? [index] : []));
+    const statementSlots = modes.flatMap((mode, index) => (mode === 'truth_combination' ? [] : [index]));
+    const answers = new Array(modes.length);
+    // 큰 번호부터 <보기>형에, 남은 번호(①·② 포함)를 단일 정답형에 준다.
+    for (const slot of shuffle(comboSlots, rng)) {
+        const value = pool.shift() ?? 3;
+        answers[slot] = value >= 3 ? value : 3 + Math.floor(rng() * 3);
+    }
+    for (const slot of shuffle(statementSlots, rng))
+        answers[slot] = pool.shift() ?? 1 + Math.floor(rng() * 5);
+    return answers;
+}
+const comboOrder = (left, right) => left.length - right.length || (left < right ? -1 : left > right ? 1 : 0);
+/**
+ * 소거 지름길 없는 <보기> 선지 조합: 정답 조합 T와, T에서 보기 하나씩의 참/거짓을 뒤집은 조합을 모두 선지에 둔다.
+ * 그러면 어느 보기 하나라도 판정하지 않으면 T와 그 보기만 다른 선지가 함께 남아 정답이 정해지지 않는다
+ * (이 조건은 필요충분: 뒤집은 조합이 하나라도 빠지면 그 보기를 건너뛰고 정답을 고를 수 있다).
+ * 선지는 기출처럼 조합 길이·가나다 순으로 놓고, 정답이 answerIndex 자리에 오는 T만 고른다.
+ */
+function shortcutFreeChoiceSet(viewKeys, answerIndex, rng) {
+    const label = (mask) => viewKeys.filter((_, index) => (mask >> index) & 1).join('');
+    const full = (1 << viewKeys.length) - 1;
+    const candidates = [];
+    for (let mask = 1; mask <= full; mask += 1) {
+        const neighbors = viewKeys.map((_, index) => mask ^ (1 << index));
+        if (neighbors.includes(0))
+            continue; // 정답이 보기 1개면 "고를 것 없음" 조합이 필요해 만들 수 없다
+        const base = [mask, ...neighbors];
+        const extras = Array.from({ length: full }, (_, index) => index + 1).filter((value) => !base.includes(value));
+        const fillers = base.length >= 5 ? [[]] : extras.map((value) => [value]);
+        for (const filler of fillers) {
+            const options = [...base, ...filler].map(label).sort(comboOrder);
+            if (options.length === 5 && options[answerIndex - 1] === label(mask))
+                candidates.push(options);
+        }
+    }
+    if (candidates.length === 0) {
+        throw new Error(`소거 지름길 없는 <보기> 조합은 정답 ${answerIndex}번 자리에 만들 수 없습니다(③~⑤만 가능).`);
+    }
+    return candidates[Math.floor(rng() * candidates.length)] ?? candidates[0];
 }
 function statsForDifficulty(subject, difficulty) {
     const profile = (0, exam_style_knowledge_1.loadExamStyleProfile)().subjects[subject];
